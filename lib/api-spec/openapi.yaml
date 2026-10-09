@@ -3,20 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: RaktSetu donor, blood-bank, emergency-request and moderation API.
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: donors
+  - name: banks
+  - name: requests
+  - name: safety
+  - name: admin
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +27,635 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /donors:
+    get:
+      operationId: listDonors
+      tags: [donors]
+      summary: Search public donor profiles by group and location
+      parameters:
+        - in: query
+          name: bloodGroup
+          schema: { $ref: "#/components/schemas/BloodGroup" }
+        - in: query
+          name: city
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: availableOnly
+          schema: { type: boolean, default: true }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        "200":
+          description: Public donor cards; private contact details are never included.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DonorSummary" }
+  /donors/me:
+    get:
+      operationId: getMyDonorProfile
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      responses:
+        "200":
+          description: Donor's own private profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: saveMyDonorProfile
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DonorProfileInput" }
+      responses:
+        "200":
+          description: Saved profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      operationId: updateMyDonorProfile
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DonorProfileUpdate" }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /donors/me/availability:
+    patch:
+      operationId: setDonorAvailability
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AvailabilityInput" }
+      responses:
+        "200":
+          description: Updated availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /donors/me/nearby-requests:
+    get:
+      operationId: listNearbyRequests
+      tags: [requests]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        "200":
+          description: Active requests around this donor; requester contacts are omitted.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EmergencyRequestSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /donors/{donorId}/contact-requests:
+    post:
+      operationId: createContactRequest
+      tags: [donors]
+      parameters:
+        - in: path
+          name: donorId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactRequestInput" }
+      responses:
+        "201":
+          description: Request created; tracking code is a private bearer secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactRequestCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /donors/me/contact-requests:
+    get:
+      operationId: listMyContactRequests
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      responses:
+        "200":
+          description: Private inbox for the signed-in donor
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ContactRequestInboxItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /contact-requests/{id}/decision:
+    patch:
+      operationId: decideContactRequest
+      tags: [donors]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactRequestDecision" }
+      responses:
+        "200":
+          description: Donor decision recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactRequestInboxItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /contact-requests/track/{trackingCode}:
+    get:
+      operationId: trackContactRequest
+      tags: [requests]
+      parameters:
+        - in: path
+          name: trackingCode
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 100 }
+      responses:
+        "200":
+          description: Contact request status; donor phone appears only after explicit approval.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactRequestTracking" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /banks:
+    get:
+      operationId: listBloodBanks
+      tags: [banks]
+      summary: Search the community blood-bank directory
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Directory listings; verify details with each facility.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BloodBank" }
+  /requests:
+    post:
+      operationId: createEmergencyRequest
+      tags: [requests]
+      summary: Create an emergency blood request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmergencyRequestInput" }
+      responses:
+        "201":
+          description: Request and private tracking code
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmergencyRequestCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /requests/track/{trackingCode}:
+    get:
+      operationId: trackEmergencyRequest
+      tags: [requests]
+      parameters:
+        - in: path
+          name: trackingCode
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 100 }
+      responses:
+        "200":
+          description: Request status and donor responses; requester contact details are omitted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmergencyRequestTracking" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /requests/{requestId}/responses:
+    post:
+      operationId: createDonorResponse
+      tags: [requests]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DonorResponseInput" }
+      responses:
+        "201":
+          description: Donor response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /reports:
+    post:
+      operationId: createReport
+      tags: [safety]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportInput" }
+      responses:
+        "201":
+          description: Report submitted for administrator review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /blocks:
+    get:
+      operationId: listBlockedDonors
+      tags: [safety]
+      security: [{ clerkSession: [] }]
+      responses:
+        "200":
+          description: Donors hidden by the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BlockedDonor" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: blockDonor
+      tags: [safety]
+      security: [{ clerkSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BlockInput" }
+      responses:
+        "201":
+          description: Donor blocked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockedDonor" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /blocks/{donorId}:
+    delete:
+      operationId: unblockDonor
+      tags: [safety]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: path
+          name: donorId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Donor unblocked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      security: [{ clerkSession: [] }]
+      responses:
+        "200":
+          description: Administrator dashboard summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminOverview" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/reports:
+    get:
+      operationId: listAdminReports
+      tags: [admin]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [open, reviewed, dismissed] }
+      responses:
+        "200":
+          description: Reports visible to administrators
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/reports/{id}:
+    patch:
+      operationId: updateAdminReport
+      tags: [admin]
+      security: [{ clerkSession: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminReportUpdate" }
+      responses:
+        "200":
+          description: Updated report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 components:
+  securitySchemes:
+    clerkSession:
+      type: apiKey
+      in: cookie
+      name: __session
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Sign-in required
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Administrator access required
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Record not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
-
+        status: { type: string }
+    BloodGroup:
+      type: string
+      enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
+    DonorSummary:
+      type: object
+      required: [id, displayName, bloodGroup, city, area, available, shareContact, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        bloodGroup: { $ref: "#/components/schemas/BloodGroup" }
+        city: { type: string }
+        area: { type: string }
+        available: { type: boolean }
+        shareContact: { type: boolean }
+        lastDonatedAt: { type: ["string", "null"], format: date }
+        createdAt: { type: string, format: date-time }
+    DonorProfile:
+      allOf:
+        - $ref: "#/components/schemas/DonorSummary"
+        - type: object
+          required: [phone, notificationsEnabled]
+          properties:
+            phone: { type: string }
+            notificationsEnabled: { type: boolean }
+    DonorProfileInput:
+      type: object
+      required: [displayName, bloodGroup, city, area, phone, shareContact, notificationsEnabled]
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 80 }
+        bloodGroup: { $ref: "#/components/schemas/BloodGroup" }
+        city: { type: string, minLength: 2, maxLength: 100 }
+        area: { type: string, minLength: 2, maxLength: 100 }
+        phone: { type: string, minLength: 8, maxLength: 20 }
+        lastDonatedAt: { type: ["string", "null"], format: date }
+        shareContact: { type: boolean, description: "Consent to let a requester see the donor phone only after accepting that specific contact request." }
+        notificationsEnabled: { type: boolean, description: "Opt in to in-app notifications. No external message is sent." }
+    DonorProfileUpdate:
+      type: object
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 80 }
+        bloodGroup: { $ref: "#/components/schemas/BloodGroup" }
+        city: { type: string, minLength: 2, maxLength: 100 }
+        area: { type: string, minLength: 2, maxLength: 100 }
+        phone: { type: string, minLength: 8, maxLength: 20 }
+        lastDonatedAt: { type: ["string", "null"], format: date }
+        shareContact: { type: boolean }
+        notificationsEnabled: { type: boolean }
+    AvailabilityInput:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+    ContactRequestInput:
+      type: object
+      required: [requesterName, requesterPhone, message]
+      properties:
+        requesterName: { type: string, minLength: 2, maxLength: 80 }
+        requesterPhone: { type: string, minLength: 8, maxLength: 20 }
+        requesterEmail: { type: ["string", "null"], format: email, maxLength: 254 }
+        message: { type: string, minLength: 4, maxLength: 500 }
+    ContactRequestCreated:
+      type: object
+      required: [id, trackingCode, status]
+      properties:
+        id: { type: string, format: uuid }
+        trackingCode: { type: string }
+        status: { type: string, enum: [pending] }
+    ContactRequestInboxItem:
+      type: object
+      required: [id, requesterName, requesterPhone, message, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        requesterName: { type: string }
+        requesterPhone: { type: string }
+        requesterEmail: { type: ["string", "null"], format: email }
+        message: { type: string }
+        status: { type: string, enum: [pending, accepted, declined] }
+        sharePhone: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    ContactRequestDecision:
+      type: object
+      required: [status, sharePhone]
+      properties:
+        status: { type: string, enum: [accepted, declined] }
+        sharePhone: { type: boolean, description: "Phone is shared only when the donor has enabled contact sharing and explicitly approves this request." }
+    ContactRequestTracking:
+      type: object
+      required: [id, donorName, status, sharePhone, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        donorName: { type: string }
+        status: { type: string, enum: [pending, accepted, declined] }
+        sharePhone: { type: boolean }
+        donorPhone: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    BloodBank:
+      type: object
+      required: [id, name, city, area, address, phone, hours, verified]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        city: { type: string }
+        area: { type: string }
+        address: { type: string }
+        phone: { type: string }
+        hours: { type: string }
+        verified: { type: boolean }
+    EmergencyRequestInput:
+      type: object
+      required: [patientName, contactPhone, bloodGroup, city, area, hospital, units, urgency, neededBy, details, consentToContact]
+      properties:
+        patientName: { type: string, minLength: 2, maxLength: 80 }
+        contactPhone: { type: string, minLength: 8, maxLength: 20 }
+        bloodGroup: { $ref: "#/components/schemas/BloodGroup" }
+        city: { type: string, minLength: 2, maxLength: 100 }
+        area: { type: string, minLength: 2, maxLength: 100 }
+        hospital: { type: string, minLength: 2, maxLength: 140 }
+        units: { type: integer, minimum: 1, maximum: 20 }
+        urgency: { type: string, enum: [critical, urgent, planned] }
+        neededBy: { type: ["string", "null"], format: date-time }
+        details: { type: string, maxLength: 1000 }
+        consentToContact: { type: boolean, const: true }
+    EmergencyRequestCreated:
+      type: object
+      required: [id, trackingCode, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        trackingCode: { type: string }
+        status: { type: string, enum: [active] }
+        createdAt: { type: string, format: date-time }
+    EmergencyRequestSummary:
+      type: object
+      required: [id, bloodGroup, city, area, hospital, units, urgency, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        bloodGroup: { $ref: "#/components/schemas/BloodGroup" }
+        city: { type: string }
+        area: { type: string }
+        hospital: { type: string }
+        units: { type: integer }
+        urgency: { type: string, enum: [critical, urgent, planned] }
+        status: { type: string, enum: [active, matching, fulfilled, cancelled] }
+        createdAt: { type: string, format: date-time }
+    DonorResponseInput:
+      type: object
+      required: [message, shareContact]
+      properties:
+        message: { type: string, minLength: 2, maxLength: 500 }
+        shareContact: { type: boolean, description: "Explicit, request-specific consent to share the donor phone with this requester." }
+    DonorResponse:
+      type: object
+      required: [id, donorName, message, shareContact, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        donorName: { type: string }
+        message: { type: string }
+        shareContact: { type: boolean }
+        donorPhone: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    EmergencyRequestTracking:
+      allOf:
+        - $ref: "#/components/schemas/EmergencyRequestSummary"
+        - type: object
+          required: [responses]
+          properties:
+            responses:
+              type: array
+              items: { $ref: "#/components/schemas/DonorResponse" }
+    ReportInput:
+      type: object
+      required: [subjectType, subjectId, reason, details]
+      properties:
+        subjectType: { type: string, enum: [donor, blood_request, blood_bank] }
+        subjectId: { type: string, format: uuid }
+        reason: { type: string, enum: [incorrect_information, abuse, fraud, safety_concern, other] }
+        details: { type: string, minLength: 4, maxLength: 1000 }
+    ReportCreated:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [open] }
+    AdminReport:
+      allOf:
+        - $ref: "#/components/schemas/ReportInput"
+        - type: object
+          required: [id, status, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [open, reviewed, dismissed] }
+            createdAt: { type: string, format: date-time }
+    AdminReportUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [reviewed, dismissed] }
+    BlockInput:
+      type: object
+      required: [donorId]
+      properties:
+        donorId: { type: string, format: uuid }
+    BlockedDonor:
+      type: object
+      required: [donorId, displayName, createdAt]
+      properties:
+        donorId: { type: string, format: uuid }
+        displayName: { type: string }
+        createdAt: { type: string, format: date-time }
+    AdminOverview:
+      type: object
+      required: [donorCount, availableDonorCount, activeRequestCount, openReportCount, recentRequests]
+      properties:
+        donorCount: { type: integer }
+        availableDonorCount: { type: integer }
+        activeRequestCount: { type: integer }
+        openReportCount: { type: integer }
+        recentRequests:
+          type: array
+          items: { $ref: "#/components/schemas/EmergencyRequestSummary" }

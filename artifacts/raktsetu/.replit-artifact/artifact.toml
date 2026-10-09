@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "RaktSetu"
+description = "A responsive blood donor and blood bank connectivity platform for finding nearby help, registering as a donor, submitting emergency requests, and tracking request status with privacy controls."
+version = "1.0.0"
+id = "artifacts/raktsetu"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25167
+
+[services.development]
+run = "pnpm --filter @workspace/raktsetu run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/raktsetu", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/raktsetu/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25167"
+BASE_PATH = "/"

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 54" fill="none">
+  <rect width="46" height="46" x="2" y="4" rx="15" fill="#B51D37"/>
+  <path d="M25 13c-4.2 6.5-10 12-10 18.1a10 10 0 0 0 20 0C35 25 29.2 19.5 25 13Z" fill="#FFF7F2"/>
+  <text x="60" y="37" fill="#382428" font-family="Manrope, sans-serif" font-size="31" font-weight="800" letter-spacing="-1.6">rakt<tspan fill="#B51D37">setu</tspan></text>
+</svg>
